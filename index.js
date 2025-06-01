@@ -164,14 +164,16 @@ function verifyPaymentLinkangpao(chatId, parameters, paymentData, amount) {
     return;
   }
 
-  const linkPattern = /https:\/\/gift\.truemoney\.com\/campaign\/\?v=([0-9A-Za-z]{35})/;
+  // แก้ไข pattern ให้รองรับทั้งแบบมีและไม่มี / หลัง campaign
+  const linkPattern = /https:\/\/gift\.truemoney\.com\/campaign\/?(\?v=)([0-9A-Za-z]{35})/;
   const match = paymentData.match(linkPattern);
   if (!match) {
     bot.sendMessage(chatId, '🚫 *ลิงก์ซองอั่งเปาไม่ถูกต้อง*', { parse_mode: 'Markdown' });
     return;
   }
 
-  const voucherHash = match[1];
+  // ใช้ match[2] เพราะตอนนี้กลุ่มที่ 2 คือ voucher hash (เนื่องจากเราเพิ่มกลุ่มที่ 1 สำหรับ ?v=)
+  const voucherHash = match[2];
   console.log(`voucherHash: ${voucherHash}`);
 
   const postData = JSON.stringify({
@@ -181,15 +183,25 @@ function verifyPaymentLinkangpao(chatId, parameters, paymentData, amount) {
 
   const url = `https://gift.truemoney.com/campaign/vouchers/${voucherHash}/redeem`;
 
+  // สร้าง User-Agent แบบสุ่มเพื่อให้เหมือนเบราว์เซอร์จริง
+  const userAgent = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.${Math.floor(Math.random() * 9000) + 1000}.0 Safari/537.36`;
+
   const options = {
     method: 'POST',
     url: url,
     headers: {
       'Content-Type': 'application/json',
-      'Accept-Encoding': 'gzip, deflate',
+      'Accept': 'application/json',
+      'User-Agent': userAgent,
+      'Origin': 'https://gift.truemoney.com',
+      'Referer': 'https://gift.truemoney.com/campaign/',
+      'Accept-Language': 'th-TH,th;q=0.9,en-US;q=0.8,en;q=0.7',
+      'Accept-Encoding': 'gzip, deflate, br',
+      'Connection': 'keep-alive',
       'Content-Length': Buffer.byteLength(postData)
     },
-    body: postData
+    body: postData,
+    gzip: true
   };
 
   request(options, (error, response, body) => {
@@ -202,7 +214,6 @@ function verifyPaymentLinkangpao(chatId, parameters, paymentData, amount) {
     console.log(`[verifyPaymentLinkangpao] API response status: ${response.statusCode}`);
     console.log(`[verifyPaymentLinkangpao] API response body: ${body}`);
 
-    // ตรวจสอบว่า body ไม่ว่างและเป็น JSON
     let data;
     try {
       if (!body || typeof body !== 'string' || (!body.trim().startsWith('{') && !body.trim().startsWith('['))) {
@@ -687,6 +698,24 @@ bot.on('message', (msg) => {
       delete userSessions[userId].pendingCode;
       return;
     }
+    
+    // เพิ่มการตรวจจับลิงก์อั่งเปาในแชทส่วนตัว
+    if (text && typeof text === 'string') {
+      // แก้ไข pattern ให้รองรับทั้งแบบมีและไม่มี / หลัง campaign
+      const linkPattern = /https:\/\/gift\.truemoney\.com\/campaign\/?(\?v=)([0-9A-Za-z]{35})/;
+      if (linkPattern.test(text)) {
+        // ตรวจพบลิงก์อั่งเปา
+        bot.sendMessage(chatId, '🔍 *กำลังตรวจสอบลิงก์อั่งเปา...*', { parse_mode: 'Markdown' });
+        
+        // กำหนดจำนวนเงินจากลิงก์ (ในกรณีนี้เราจะใช้ค่าเริ่มต้นเป็น 100 บาท)
+        // คุณอาจจะเพิ่มการถามผู้ใช้ว่าเป็นจำนวนเงินเท่าไหร่ หรือใช้ค่าเริ่มต้น
+        const amount = 100;
+        
+        // เรียกใช้ฟังก์ชันตรวจสอบลิงก์อั่งเปา
+        verifyPaymentLinkangpao(chatId, { phone: mobileNumber }, text, amount);
+        return;
+      }
+    }
   }
 
   // จัดการเมื่อมีสมาชิกใหม่เข้ามาในกลุ่ม
@@ -723,7 +752,8 @@ bot.on('message', (msg) => {
                   messageCount: 0,
                   messages: [],
                   isActive: false,
-                  warningSent: false
+                  warningSent: false,
+                  isBanned: false // เพิ่มสถานะ isBanned
                 };
                 console.log(`📋 Added ${newMember.id} to newUserActivity`);
               })
@@ -1002,216 +1032,143 @@ bot.on('message', (msg) => {
       const amount = parseInt(text);
       if (isNaN(amount) || amount <= 0) {
         bot.sendMessage(chatId, '⚠️ *กรุณาระบุจำนวนเครดิตที่ถูกต้อง!*', { parse_mode: 'Markdown' });
-      } else {
-        const targetUserId = session.targetUserId.toString();
-        const senderUserId = userId.toString();
-        let senderData = getUserData(senderUserId);
-        let receiverData = getUserData(targetUserId);
-
-        if ((senderData.credits || 0) < amount) {
-          bot.sendMessage(chatId, '🚫 *เครดิตไม่เพียงพอสำหรับการโอน!*', { parse_mode: 'Markdown' });
-          delete userSessions[userId];
-          return;
-        }
-
-        senderData.credits -= amount;
-        receiverData.credits += amount;
-        saveUserData(senderUserId, senderData);
-        saveUserData(targetUserId, receiverData);
-        bot.sendMessage(chatId, `✅ *โอนเครดิต ${amount} เครดิต ไปยังผู้ใช้ ${targetUserId} สำเร็จ!*`, { parse_mode: 'Markdown' });
-        bot.sendMessage(targetUserId, `💎 *คุณได้รับเครดิต ${amount} เครดิต จากผู้ใช้ ${senderUserId}!*`, { parse_mode: 'Markdown' })
-          .catch((err) => {
-            console.error('🚫 Error notifying receiver:', err);
-          });
-        delete userSessions[userId];
+        return;
       }
+
+      const userIdStr = userId.toString();
+      const targetUserIdStr = session.targetUserId.toString();
+      let userData = getUserData(userIdStr);
+      let targetUserData = getUserData(targetUserIdStr);
+      let currentCredits = userData.credits || 0;
+
+      if (currentCredits < amount) {
+        bot.sendMessage(chatId, `⚠️ *เครดิตไม่พอ!* คุณมี ${currentCredits} เครดิต แต่ต้องการโอน ${amount} เครดิต`, { parse_mode: 'Markdown' });
+        delete userSessions[userId];
+        return;
+      }
+
+      userData.credits = currentCredits - amount;
+      targetUserData.credits = (targetUserData.credits || 0) + amount;
+      saveUserData(userIdStr, userData);
+      saveUserData(targetUserIdStr, targetUserData);
+
+      bot.sendMessage(chatId, `✅ *โอนเครดิตสำเร็จ!* คุณได้โอน ${amount} เครดิตให้กับผู้ใช้ ID: ${session.targetUserId}\nเครดิตคงเหลือของคุณ: ${userData.credits} เครดิต`, { parse_mode: 'Markdown' });
+      bot.sendMessage(session.targetUserId, `🎁 *คุณได้รับ ${amount} เครดิตจากผู้ใช้ ID: ${userId}*\nเครดิตปัจจุบันของคุณ: ${targetUserData.credits} เครดิต`, { parse_mode: 'Markdown' }).catch(console.error);
+      delete userSessions[userId];
     } else if (session.step === 'givecredits_ask_user') {
-      if (msg.reply_to_message && msg.reply_to_message.from) {
-        const targetUserId = msg.reply_to_message.from.id;
+      if (!msg.reply_to_message) {
+        bot.sendMessage(chatId, '❌ *การเพิ่มเครดิตถูกยกเลิก เนื่องจากไม่ได้ตอบกลับข้อความของผู้รับ*', { parse_mode: 'Markdown' });
+        delete userSessions[userId];
+        return;
+      }
+      const targetUserId = msg.reply_to_message.from.id;
+      if (targetUserId) {
         session.targetUserId = targetUserId;
         session.step = 'givecredits_ask_amount';
-        bot.sendMessage(chatId, '💰 *กรุณาระบุจำนวนเครดิตที่ต้องการเพิ่มให้ผู้ใช้คนนี้*', { parse_mode: 'Markdown' });
+        const message = `💰 *กรุณาระบุจำนวนเครดิตที่ต้องการเพิ่มให้กับผู้ใช้ ID: ${targetUserId}*`;
+        bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
       } else {
-        bot.sendMessage(chatId, '⚠️ *กรุณาตอบกลับข้อความของผู้ใช้ที่ต้องการเพิ่มเครดิต!*', { parse_mode: 'Markdown' });
+        bot.sendMessage(chatId, '❌ *การเพิ่มเครดิตถูกยกเลิก เนื่องจากไม่พบผู้รับ*', { parse_mode: 'Markdown' });
+        delete userSessions[userId];
       }
     } else if (session.step === 'givecredits_ask_amount') {
       const amount = parseInt(text);
       if (isNaN(amount) || amount <= 0) {
         bot.sendMessage(chatId, '⚠️ *กรุณาระบุจำนวนเครดิตที่ถูกต้อง!*', { parse_mode: 'Markdown' });
-      } else {
-        const targetUserId = session.targetUserId.toString();
-        let targetUserData = getUserData(targetUserId);
-        let currentCredits = targetUserData.credits || 0;
-        targetUserData.credits = currentCredits + amount;
-        saveUserData(targetUserId, targetUserData);
-        bot.sendMessage(chatId, `✅ *เพิ่มเครดิตให้ผู้ใช้ ${targetUserId} จำนวน ${amount} เครดิตแล้ว!*`, { parse_mode: 'Markdown' });
-        if (targetUserId !== userId.toString()) {
-          bot.sendMessage(targetUserId, `💎 *คุณได้รับเครดิตเพิ่ม ${amount} เครดิต จากแอดมิน!*`, { parse_mode: 'Markdown' });
-        }
-        delete userSessions[userId];
+        return;
       }
-    }
-  } else if (msg.chat.type === 'private') {
-    if (text && text.startsWith('/start')) {
-      const args = text.split(' ');
-      if (args.length > 1 && args[1] === 'topup') {
-        const message = 
-`💠💠💠💠💠💠💠💠💠
-*⚡️ Hi-Tech Top-Up System ⚡️*
-💠💠💠💠💠💠💠💠💠
 
-✨ *ขั้นตอนการเติมเครดิต:*
-1. 🔗 ส่ง *ลิงก์ซองอั่งเปาวอเล็ท* ให้บอท
-2. ⏳ รอสักครู่ ระบบ AI ประมวลผลอย่างรวดเร็ว
-3. 💎 รับเครดิตของคุณและพร้อมใช้งานทันที!
+      const targetUserIdStr = session.targetUserId.toString();
+      let targetUserData = getUserData(targetUserIdStr);
+      targetUserData.credits = (targetUserData.credits || 0) + amount;
+      saveUserData(targetUserIdStr, targetUserData);
 
-🎁 *โปรโมชั่นพิเศษ!*
-💰 เติม 100 บาท รับฟรีอีก 20 เครดิต!
-
-🚀 ยิ่งเติมมาก ยิ่งได้รับมาก!`;
-        bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
-      }
-    }
-    if (text && text.includes('https://gift.truemoney.com/campaign/?v=')) {
-      const codeMatch = text.match(/v=([a-zA-Z0-9]+)/);
-      if (codeMatch && codeMatch[1]) {
-        const code = codeMatch[1];
-        // เรียกฟังก์ชัน verifyPaymentLinkangpao
-        verifyPaymentLinkangpao(chatId, { phone: mobileNumber }, text, 100); // สมมติว่า amount เป็น 100
-      } else {
-        bot.sendMessage(chatId, '⚠️ *ลิงก์ไม่ถูกต้อง!*', { parse_mode: 'Markdown' });
-      }
-    }
-  } else {
-    if (text && !text.startsWith('/')) {
-      bot.sendMessage(chatId, '❓ *ไม่เข้าใจคำสั่งของคุณ โปรดใช้คำสั่งที่กำหนด!*', { parse_mode: 'Markdown' })
-        .then((sentMessage) => {
-          setTimeout(() => {
-            bot.deleteMessage(chatId, sentMessage.message_id).catch(console.error);
-          }, 6000);
-        });
+      bot.sendMessage(chatId, `✅ *เพิ่มเครดิตสำเร็จ!* คุณได้เพิ่ม ${amount} เครดิตให้กับผู้ใช้ ID: ${session.targetUserId}\nเครดิตปัจจุบันของผู้ใช้: ${targetUserData.credits} เครดิต`, { parse_mode: 'Markdown' });
+      bot.sendMessage(session.targetUserId, `🎁 *คุณได้รับ ${amount} เครดิตจากแอดมิน*\nเครดิตปัจจุบันของคุณ: ${targetUserData.credits} เครดิต`, { parse_mode: 'Markdown' }).catch(console.error);
+      delete userSessions[userId];
     }
   }
 });
 
-// 📬 ฟังก์ชันสำหรับส่งโค้ดไปยังผู้ใช้
-function sendCodeToUser(userId, chatId, clientCode, session, msg, expiryTime, retryCount = 0) {
-  const actualExpiryTime = expiryTime || generateExpiryTime(session.timeAmount, session.timeUnit);
-  bot.sendMessage(userId, `🎉 *โค้ดของคุณถูกสร้างสำเร็จ!* ✅\n\n📬 *โค้ดของคุณ:*\n\n\`${clientCode}\`\n\n⏳ *หมดอายุใน ${session.timeAmount} ${session.timeUnit === 'day' ? 'วัน' : session.timeUnit === 'hour' ? 'ชั่วโมง' : 'นาที'}*\n📊 *จำนวน IP ที่อนุญาต:* ${session.ipLimit}\n\n💎 *ขอบคุณที่ใช้บริการ!*`, { parse_mode: 'Markdown' })
-    .then(() => {
-      const userIdStr = userId.toString();
-      let userData = getUserData(userIdStr);
-      if (!userData.codes) {
-        userData.codes = [];
-      }
-      userData.codes.push({
-        code: clientCode,
-        codeName: session.codeName,
-        creationDate: new Date().toLocaleString(),
-        expiryTime: actualExpiryTime,
-        ipLimit: session.ipLimit
-      });
-      saveUserData(userIdStr, userData);
-      if (!session.isTrial) {
-        let requiredCredits;
-        if (session.timeUnit === 'day') {
-          requiredCredits = session.timeAmount * 2;
-        } else if (session.timeUnit === 'hour') {
-          requiredCredits = session.timeAmount * 5.4;
-        } else if (session.timeUnit === 'minute') {
-          requiredCredits = session.timeAmount * 0.1;
-        }
-        if (session.ipLimit && session.ipLimit > 0) {
-          requiredCredits += session.ipLimit * 1;
-        }
-        requiredCredits = parseFloat(requiredCredits.toFixed(2));
-        let currentCredits = userData.credits || 0;
-        if (currentCredits >= requiredCredits) {
-          userData.credits = currentCredits - requiredCredits;
-          saveUserData(userIdStr, userData);
-          bot.sendMessage(chatId, `💰 *หักเครดิต ${requiredCredits} เครดิตจากยอดเครดิตของคุณเรียบร้อย!*`, { parse_mode: 'Markdown' });
-        } else {
-          bot.sendMessage(chatId, `⚠️ *เครดิตไม่พอสำหรับการหักเครดิต (${requiredCredits} เครดิต). กรุณาเติมเครดิตเพิ่มเติม*`, { parse_mode: 'Markdown' });
-        }
-      } else {
-        bot.sendMessage(chatId, `💎 *โค้ดทดลองใช้งานได้ 20 นาที!*`, { parse_mode: 'Markdown' });
-      }
-      delete userSessions[userId];
-    })
-    .catch((error) => {
-      if (error.response && error.response.statusCode === 403) {
-        // กรณีผู้ใช้ยังไม่เคยทักบอท
-        userSessions[userId] = userSessions[userId] || {};
-        userSessions[userId].pendingCode = {
-          clientCode,
-          session: { ...session },
-          msg,
-          expiryTime: actualExpiryTime,
-          retryCount: retryCount + 1
-        };
-        const options = {
-          parse_mode: 'Markdown',
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '💬 เริ่มแชทกับบอท', url: `https://t.me/${botUsername}?start` }]
-            ]
-          }
-        };
-        const username = msg.from && msg.from.username ? `@${msg.from.username}` : (msg.from ? msg.from.first_name : 'ผู้ใช้');
-        bot.sendMessage(chatId, `${username} *กรุณาเริ่มแชทส่วนตัวกับบอทก่อนเพื่อรับโค้ด*`, options);
-        // retry อัตโนมัติหลัง 6 วินาที (ถ้ายังไม่สำเร็จ)
-        if (retryCount < 2) {
-          setTimeout(() => {
-            if (userSessions[userId] && userSessions[userId].pendingCode) {
-              sendCodeToUser(userId, chatId, clientCode, session, msg, expiryTime, retryCount + 1);
-            }
-          }, 6000);
-        }
-      } else {
-        console.error('🚫 Error sending code to user:', error);
-      }
+// ฟังก์ชันสำหรับส่งโค้ดให้ผู้ใช้
+function sendCodeToUser(userId, chatId, clientCode, session, msg, expiryTime) {
+  const userIdStr = userId.toString();
+  let userData = getUserData(userIdStr);
+  
+  // ถ้าไม่ใช่โค้ดทดลอง ให้หักเครดิต
+  if (!session.isTrial) {
+    let requiredCredits;
+    if (session.timeUnit === 'day') {
+      requiredCredits = session.timeAmount * 2;
+    } else if (session.timeUnit === 'hour') {
+      requiredCredits = session.timeAmount * 5.4;
+    } else if (session.timeUnit === 'minute') {
+      requiredCredits = session.timeAmount * 0.1;
+    }
+    if (session.ipLimit && session.ipLimit > 0) {
+      requiredCredits += session.ipLimit * 1;
+    }
+    requiredCredits = parseFloat(requiredCredits.toFixed(2));
+    userData.credits = (userData.credits || 0) - requiredCredits;
+  }
+
+  // เพิ่มโค้ดใหม่ลงในรายการโค้ดของผู้ใช้
+  if (!userData.codes) {
+    userData.codes = [];
+  }
+  userData.codes.push({
+    codeName: session.codeName,
+    code: clientCode,
+    creationDate: new Date().toISOString(),
+    expiryTime: expiryTime,
+    type: session.type,
+    ipLimit: session.ipLimit,
+    gbLimit: session.gbLimit
+  });
+  saveUserData(userIdStr, userData);
+
+  // ส่งโค้ดให้ผู้ใช้ในแชทส่วนตัว
+  if (chatId !== userId) {
+    // ถ้าเป็นกลุ่ม ให้เก็บโค้ดไว้ส่งในแชทส่วนตัว
+    userSessions[userId] = userSessions[userId] || {};
+    userSessions[userId].pendingCode = { clientCode, session, msg, expiryTime };
+    bot.sendMessage(userId, `🎉 *โค้ดของคุณพร้อมใช้งานแล้ว!*\n\n📝 *ชื่อโค้ด:* ${session.codeName}\n\n${clientCode}\n\n⏰ *หมดอายุ:* ${new Date(expiryTime).toLocaleString('th-TH')}\n\n📱 *วิธีใช้งาน:*\n1. คัดลอกโค้ดทั้งหมด\n2. เปิดแอพ V2rayNG\n3. กดปุ่ม + และเลือก "Import config from clipboard"\n4. เชื่อมต่อและเริ่มใช้งานได้ทันที!`, { parse_mode: 'Markdown' }).catch(error => {
+      console.error('🚫 Error sending code to user:', error);
+      bot.sendMessage(chatId, '⚠️ *ไม่สามารถส่งโค้ดไปยังแชทส่วนตัวได้ กรุณาเริ่มแชทกับบอทก่อน!*\n\nคลิกที่ @' + botUsername + ' และกด Start', { parse_mode: 'Markdown' });
     });
-}
-
-// 🛡️ ฟังก์ชันตรวจสอบและเตะผู้ใช้ที่ไม่ได้ใช้งานหรือสแปม
-function checkInactiveOrSpamUsers() {
-  const now = Date.now();
-  const groupChatId = -1002415342873; // ID กลุ่มที่ต้องการตรวจสอบ
-  for (let userId in newUserActivity) {
-    const user = newUserActivity[userId];
-    const timeSinceJoin = now - user.joinTime;
-    const timeSinceLastActivity = now - user.lastActivity;
-
-    // ตรวจสอบสแปม (เช่น ส่งข้อความมากกว่า 10 ข้อความใน 1 นาที)
-    const recentMessages = user.messages.filter(msg => now - msg.timestamp < 60 * 1000);
-    const isSpamming = recentMessages.length > 10;
-
-    if (isSpamming) {
-      bot.sendMessage(groupChatId, `🚫 *ผู้ใช้ ID: ${userId} ถูกตรวจพบว่าสแปมและจะถูกเตะออกจากกลุ่ม!*`, { parse_mode: 'Markdown' });
-      bot.banChatMember(groupChatId, userId).then(() => {
-        console.log(`🚫 ผู้ใช้ ${userId} ถูกเตะออกเนื่องจากสแปม`);
-        delete newUserActivity[userId];
-      }).catch(err => {
-        console.error(`🚫 Error banning user ${userId}:`, err);
-      });
-      continue;
-    }
-    // ตรวจสอบความไม่เคลื่อนไหว
-    if (timeSinceJoin >= 10 * 60 * 1000 && !user.isActive) {
-      bot.banChatMember(groupChatId, userId).then(() => {
-        bot.sendMessage(groupChatId, `🚫 *ผู้ใช้ ID: ${userId} ถูกเตะออกเนื่องจากไม่ได้ใช้งาน!*`, { parse_mode: 'Markdown' });
-        console.log(`🚫 ผู้ใช้ ${userId} ถูกเตะออกเนื่องจากไม่ได้ใช้งาน`);
-      }).catch(err => {
-        console.error(`🚫 Error banning user ${userId}:`, err);
-      });
-    } else if (timeSinceLastActivity >= 60 * 1000 && now - user.lastWarningTime >= 60 * 1000) {
-      user.lastWarningTime = now;
-      user.warningSent = true;
-      bot.sendMessage(groupChatId, `⚠️ *ผู้ใช้ ID: ${userId} โปรดใช้คำสั่งหรือส่งข้อความภายใน 1 นาที มิฉะนั้นคุณจะถูกเตะออก!*`, { parse_mode: 'Markdown' });
-    }
+  } else {
+    // ถ้าเป็นแชทส่วนตัวอยู่แล้ว ส่งโค้ดเลย
+    bot.sendMessage(chatId, `🎉 *โค้ดของคุณพร้อมใช้งานแล้ว!*\n\n📝 *ชื่อโค้ด:* ${session.codeName}\n\n${clientCode}\n\n⏰ *หมดอายุ:* ${new Date(expiryTime).toLocaleString('th-TH')}\n\n📱 *วิธีใช้งาน:*\n1. คัดลอกโค้ดทั้งหมด\n2. เปิดแอพ V2rayNG\n3. กดปุ่ม + และเลือก "Import config from clipboard"\n4. เชื่อมต่อและเริ่มใช้งานได้ทันที!`, { parse_mode: 'Markdown' });
   }
 }
 
-setInterval(checkInactiveOrSpamUsers, 60 * 1000); // ตรวจสอบทุก 1 นาที
-
-console.log('🚀 Bot is running...');
+// ตรวจสอบผู้ใช้ใหม่ทุก 5 นาที
+setInterval(() => {
+  const now = Date.now();
+  const groupChatId = -1002415342873;
+  
+  for (let userId in newUserActivity) {
+    const userData = newUserActivity[userId];
+    
+    // ถ้าผู้ใช้ไม่มีกิจกรรมเกิน 10 นาที และยังไม่ได้ส่งคำเตือน
+    if (!userData.isActive && !userData.warningSent && (now - userData.joinTime > 10 * 60 * 1000)) {
+      bot.sendMessage(groupChatId, `⚠️ @${userId} คุณยังไม่มีกิจกรรมใดๆ ในกลุ่ม คุณจะถูกนำออกจากกลุ่มในอีก 5 นาที หากไม่มีการใช้คำสั่งหรือส่งข้อความ`);
+      userData.warningSent = true;
+    }
+    
+    // ถ้าผู้ใช้ไม่มีกิจกรรมเกิน 15 นาที และยังไม่ถูกแบน
+    if (!userData.isActive && userData.warningSent && !userData.isBanned && (now - userData.joinTime > 15 * 60 * 1000)) {
+      bot.kickChatMember(groupChatId, userId, Math.floor(now / 1000) + 60).then(() => {
+        bot.sendMessage(groupChatId, `🚫 ผู้ใช้ ID: ${userId} ถูกนำออกจากกลุ่มเนื่องจากไม่มีกิจกรรมใดๆ`);
+        userData.isBanned = true;
+      }).catch(error => {
+        console.error(`🚫 Error kicking user ${userId}:`, error);
+      });
+    }
+    
+    // ลบข้อมูลผู้ใช้ที่ถูกแบนไปแล้วเกิน 1 ชั่วโมง
+    if (userData.isBanned && (now - userData.joinTime > 60 * 60 * 1000)) {
+      delete newUserActivity[userId];
+    }
+  }
+}, 5 * 60 * 1000); // ทุก 5 นาที

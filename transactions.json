@@ -35,16 +35,23 @@
         "creationDate": "5/31/2025, 10:39:59 AM",
         "expiryTime": 1748689157809,
         "ipLimit": 1
+      },
+      {
+        "code": "vless://a70ccd9d-2104-4db2-bfc8-59fdb600c3e7@tha1.thatoeyvpn.online:8080?type=ws&path=%2Fvpnws&host=speedtest.net&security=none#%E0%B8%A3",
+        "codeName": "ร",
+        "creationDate": "6/1/2025, 1:34:26 PM",
+        "expiryTime": 1748786041752,
+        "ipLimit": 2
       }
     ],
-    "trialCodesCount": 3,
-    "lastTrialResetMonth": 4
+    "trialCodesCount": 1,
+    "lastTrialResetMonth": 5
   },
   "7875199072": {
     "credits": 0,
     "codes": [],
-    "trialCodesCount": 1,
-    "lastTrialResetMonth": 4
+    "trialCodesCount": 0,
+    "lastTrialResetMonth": 5
   },
   "7566978830": {
     "credits": 0,
@@ -113,8 +120,8 @@
         "ipLimit": 1
       }
     ],
-    "trialCodesCount": 2,
-    "lastTrialResetMonth": 4
+    "trialCodesCount": 0,
+    "lastTrialResetMonth": 5
   },
   "6869469570": {
     "credits": 11,
@@ -148,7 +155,7 @@
         "ipLimit": 1
       }
     ],
-    "trialCodesCount": 3,
-    "lastTrialResetMonth": 4
+    "trialCodesCount": 0,
+    "lastTrialResetMonth": 5
   }
 }
