@@ -42,9 +42,18 @@
         "creationDate": "6/1/2025, 1:34:26 PM",
         "expiryTime": 1748786041752,
         "ipLimit": 2
+      },
+      {
+        "codeName": "ต",
+        "code": "vless://1e55f174-918c-4b01-ae92-0ad7f1f2a56b@tha1.thatoeyvpn.online:8080?type=ws&path=%2Fvpnws&host=speedtest.net&security=none#%E0%B8%95",
+        "creationDate": "2025-06-02T06:11:48.827Z",
+        "expiryTime": 1748845883048,
+        "type": "ais",
+        "ipLimit": 1,
+        "gbLimit": 0
       }
     ],
-    "trialCodesCount": 1,
+    "trialCodesCount": 2,
     "lastTrialResetMonth": 5
   },
   "7875199072": {

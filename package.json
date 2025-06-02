@@ -161,7 +161,7 @@
     "mute-stream": "^0.0.5",
     "next-tick": "^1.1.0",
     "node-domexception": "^1.0.0",
-    "node-fetch": "^3.3.2",
+    "node-fetch": "^2.6.12",
     "node-gyp-build": "^4.8.4",
     "node-localstorage": "^2.2.1",
     "node-telegram-bot-api": "^0.66.0",
