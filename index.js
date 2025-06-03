@@ -318,7 +318,7 @@ function updateUserCredits(chatId, amount) {
 }
 
 // 👑 รายการแอดมิน
-const adminIds = [7388463166];
+const adminIds = [7520172820];
 
 // เก็บสถานะ mute ชั่วคราวของผู้ใช้
 const mutedUsers = {};
